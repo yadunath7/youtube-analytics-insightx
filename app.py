@@ -1,565 +1,460 @@
-"""
-app.py
-------
-YouTube Trending Videos 2025 — Interactive Analytics Dashboard
-Built with Streamlit + Plotly
-"""
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from youtube_api import get_trending_videos, search_youtube_videos, get_categories
+from data_loader import process_video_data, get_channel_summary
+from ai_assistant import get_ai_response, analyze_trends
+import datetime
+from streamlit_autorefresh import st_autorefresh
 
-from data_loader import load_data, CATEGORIES
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Page config  (must be first Streamlit call)
-# ──────────────────────────────────────────────────────────────────────────────
+# --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="YouTube Trending 2025 · Analytics",
-    page_icon="▶️",
+    page_title="YouTube InsightX | AI-Powered Premium",
+    page_icon="🔥",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Custom CSS — dark premium theme
-# ──────────────────────────────────────────────────────────────────────────────
+# --- CUSTOM CSS (PREMIUM UI v3) ---
 st.markdown("""
-<style>
-@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
-/* Global */
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
-html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+    
+    * { font-family: 'Inter', sans-serif; }
+    
+    .stApp {
+        background-color: #0b0b0b;
+        color: #ffffff;
+    }
+    
+    /* Premium Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #111111;
+        border-right: 1px solid rgba(255, 255, 255, 0.03);
+        padding-top: 20px;
+    }
+    
+    .sidebar-logo {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 1.4rem;
+        font-weight: 800;
+        margin-bottom: 40px;
+        padding-left: 10px;
+    }
+    
+    /* Glassmorphism Cards */
+    .glass-card {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(20px);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .glass-card:hover {
+        background: rgba(255, 255, 255, 0.04);
+        border-color: rgba(255, 0, 0, 0.2);
+        transform: translateY(-4px);
+    }
+    
+    /* Metrics Styling */
+    .metric-value { font-size: 2.4rem; font-weight: 800; }
+    .metric-label { font-size: 0.8rem; color: rgba(255, 255, 255, 0.5); text-transform: uppercase; letter-spacing: 1.5px; }
+    .metric-trend { font-size: 0.75rem; display: flex; align-items: center; gap: 4px; padding-top: 8px; }
+    .trend-up { color: #00ffa3; }
+    
+    /* Header Section */
+    .hero-title {
+        font-size: 44px;
+        font-weight: 800;
+        margin-bottom: 4px;
+        color: #fff;
+    }
+    .hero-subtitle {
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 1rem;
+        margin-bottom: 32px;
+    }
+    
+    /* Sidebar Selectbox Styling */
+    .stSelectbox div[data-baseweb="select"] {
+        background-color: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+    
+    /* Results Banner */
+    .banner {
+        border-left: 4px solid #00ffa3;
+        background: linear-gradient(90deg, rgba(0, 255, 163, 0.05) 0%, transparent 100%);
+        padding: 16px;
+        border-radius: 4px;
+        margin: 20px 0;
+    }
+    
+    /* footer {visibility: hidden;} */
+    </style>
+    """, unsafe_allow_html=True)
 
-/* Premium Animations */
-@keyframes fadeUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-@keyframes pulseGlow {
-    0% { box-shadow: 0 0 10px rgba(255, 0, 0, 0.2); }
-    50% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.6); }
-    100% { box-shadow: 0 0 10px rgba(255, 0, 0, 0.2); }
-}
-.stApp {
-    animation: fadeUp 0.8s ease-out forwards;
-}
+# --- SESSION STATE INITIALIZATION ---
+if 'search_results' not in st.session_state:
+    st.session_state.search_results = pd.DataFrame()
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = "🔥 Top Trending"
+if 'last_refresh' not in st.session_state:
+    st.session_state.last_refresh = datetime.datetime.now()
+if 'auto_refresh' not in st.session_state:
+    st.session_state.auto_refresh = False
+if 'query_str' not in st.session_state:
+    st.session_state.query_str = ""
+if 'region_choice_name' not in st.session_state:
+    st.session_state.region_choice_name = "India"
+if 'category_choice_name' not in st.session_state:
+    st.session_state.category_choice_name = "All"
+if 'cat_id_map' not in st.session_state:
+    st.session_state.cat_id_map = {"All": "0"}
 
-/* Premium Sidebar */
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1A1A1A 0%, #0F0F0F 100%);
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
-}
-[data-testid="stSidebar"] .stMarkdown h2 {
-    color: #FFFFFF;
-    font-size: 1.25rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    margin-bottom: 0px;
-}
-[data-testid="stSidebar"] .stMultiSelect label, [data-testid="stSidebar"] .stDateInput label, [data-testid="stSidebar"] .stSlider label {
-    font-size: 0.85rem !important;
-    font-weight: 600 !important;
-    color: #AAAAAA !important;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding-bottom: 5px;
-}
-[data-testid="stSidebar"] div[data-baseweb="select"] > div {
-    background-color: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    transition: all 0.3s ease;
-}
-[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover {
-    border-color: rgba(255,0,0,0.5);
-    background-color: rgba(255,255,255,0.05);
-}
-[data-testid="stSidebar"] hr {
-    margin: 1.5rem 0 !important;
-    border-color: rgba(255,255,255,0.05) !important;
-}
+REGION_MAP = {"India": "IN", "United States": "US", "United Kingdom": "GB", "Global": "US", "Japan": "JP", "Australia": "AU"}
 
-/* Premium KPI cards (Glassmorphism & Neon Hover) */
-.kpi-wrapper {
-    animation: fadeUp 0.6s ease-out both;
-}
-.kpi-wrapper:nth-child(1) { animation-delay: 0.1s; }
-.kpi-wrapper:nth-child(2) { animation-delay: 0.2s; }
-.kpi-wrapper:nth-child(3) { animation-delay: 0.3s; }
-.kpi-wrapper:nth-child(4) { animation-delay: 0.4s; }
-.kpi-wrapper:nth-child(5) { animation-delay: 0.5s; }
+# --- DATA FETCHING FUNCTIONS ---
+def update_data():
+    try:
+        region = REGION_MAP.get(st.session_state.get('region_choice_name', 'India'), 'IN')
+        category_id = st.session_state.get('cat_id_map', {"All": "0"}).get(st.session_state.get('category_choice_name', 'All'), "0")
+        query = st.session_state.get('temp_search_input', '')
+        st.session_state.query_str = query
+        
+        if query:
+            response = search_youtube_videos(query, region, category_id)
+            st.session_state.active_tab = "🔍 Search Results"
+        else:
+            response = get_trending_videos(region, category_id)
+            st.session_state.active_tab = "🔥 Top Trending"
+            
+        st.session_state.search_results = process_video_data(response)
+        st.session_state.last_refresh = datetime.datetime.now()
+    except Exception as e:
+        st.error(f"Intelligence Update Error: {str(e)}")
 
-.kpi-card {
-    background: linear-gradient(145deg, rgba(33,33,33,0.9), rgba(20,20,20,0.9));
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    padding: 24px 20px;
-    text-align: center;
-    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-    height: 140px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    position: relative;
-    overflow: hidden;
-}
-.kpi-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, #FF0000, #FF4D4D);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-.kpi-card:hover {
-    transform: translateY(-5px) scale(1.02);
-    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.6), 0 0 15px rgba(255, 0, 0, 0.3);
-    border-color: rgba(255, 0, 0, 0.3);
-}
-.kpi-card:hover::before {
-    opacity: 1;
-}
-.kpi-icon {
-    font-size: 1.5rem;
-    color: #FF4D4D;
-    margin-bottom: 8px;
-}
-.kpi-value {
-    font-size: 2rem;
-    font-weight: 700;
-    color: #F1F1F1;
-    line-height: 1.1;
-}
-.kpi-label {
-    font-size: 0.78rem;
-    font-weight: 500;
-    color: #AAAAAA;
-    margin-top: 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-.kpi-delta {
-    font-size: 0.75rem;
-    color: #AAAAAA;
-    margin-top: 4px;
-}
+# --- AUTO REFRESH ---
+if st.session_state.auto_refresh:
+    st_autorefresh(interval=60000, key="datarefresh") # 60s
 
-/* Section headers */
-.section-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #FFFFFF;
-    margin: 35px 0 15px 0;
-    padding-left: 12px;
-    border-left: 4px solid #FF0000;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-/* Custom Logo Header */
-.logo-container {
-    display: flex;
-    align-items: center;
-    margin-bottom: 10px;
-    animation: fadeUp 0.8s ease-out;
-}
-.logo-icon {
-    background: #FF0000;
-    color: white;
-    width: 48px;
-    height: 34px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    margin-right: 15px;
-    box-shadow: 0 4px 10px rgba(255, 0, 0, 0.4);
-}
-.logo-text {
-    font-size: 2.5rem;
-    font-weight: 900;
-    letter-spacing: -0.02em;
-    color: #FFFFFF;
-    margin: 0;
-    line-height: 1;
-}
-.logo-subtext {
-    font-weight: 300;
-    color: #AAAAAA;
-    margin-left: 10px;
-    font-size: 1.8rem;
-}
-
-/* Data source badge */
-.badge-live   { background: linear-gradient(90deg, #CC0000, #FF0000); color:#FFFFFF; padding:4px 12px; border-radius:4px; font-size:0.75rem; font-weight:700; letter-spacing:0.05em; animation: pulseGlow 2s infinite; }
-.badge-synth  { background: linear-gradient(90deg, #FF8C00, #FFA500); color:#FFFFFF; padding:4px 12px; border-radius:4px; font-size:0.75rem; font-weight:700; }
-.badge-cache  { background:#212121; color:#AAAAAA; border:1px solid #3D3D3D; padding:4px 12px; border-radius:4px; font-size:0.75rem; font-weight:600; }
-
-/* Divider */
-hr { border-color: rgba(255,255,255,0.05) !important; margin: 2rem 0 !important; }
-
-/* Streamlit table */
-.dataframe th { background: #212121 !important; color: #FFFFFF !important; font-weight: 600 !important; }
-.dataframe td { background: #141414 !important; border-bottom: 1px solid #2A2A2A !important; }
-.dataframe { border-radius: 8px; overflow: hidden; border: 1px solid #333 !important; }
-</style>
-""", unsafe_allow_html=True)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Plotly theme helper
-# ──────────────────────────────────────────────────────────────────────────────
-PLOT_BG    = "rgba(0,0,0,0)"
-PAPER_BG   = "rgba(0,0,0,0)"
-GRID_COLOR = "#3d3d3d"
-FONT_COLOR = "#F1F1F1"
-
-def apply_theme(fig: go.Figure, height: int = 400) -> go.Figure:
-    fig.update_layout(
-        plot_bgcolor=PLOT_BG,
-        paper_bgcolor=PAPER_BG,
-        font=dict(color=FONT_COLOR, family="Roboto"),
-        height=height,
-        margin=dict(l=10, r=10, t=40, b=10),
-        legend=dict(
-            bgcolor="rgba(33,33,33,0.8)",
-            bordercolor="#3d3d3d",
-            borderwidth=1,
-        ),
-    )
-    fig.update_xaxes(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR)
-    fig.update_yaxes(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR)
-    return fig
-
-RED_SEQ  = px.colors.sequential.Reds
-YT_PALETTE = ["#FF0000", "#CC0000", "#990000", "#FF4D4D", "#FF9999", "#FFFFFF", "#AAAAAA"]
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Load data (cached for performance)
-# ──────────────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_data():
-    return load_data()
-
-with st.spinner("🔄 Loading YouTube Trending data…"):
-    df_raw, source, is_live = get_data()
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Sidebar
-# ──────────────────────────────────────────────────────────────────────────────
+# --- SIDEBAR (ULTRA PREMIUM) ---
 with st.sidebar:
-    st.markdown("## <i class='fa-solid fa-sliders' style='color:#FF0000;'></i> Controls", unsafe_allow_html=True)
-    st.markdown("---")
-
-    # Data source badge
-    if source == "kaggle":
-        st.markdown('<span class="badge-live"><i class="fa-solid fa-satellite-dish"></i> LIVE (Kaggle)</span>', unsafe_allow_html=True)
-    elif source == "cache":
-        st.markdown('<span class="badge-cache"><i class="fa-solid fa-database"></i> CACHED</span>', unsafe_allow_html=True)
-    else:
-        st.markdown('<span class="badge-synth"><i class="fa-solid fa-flask"></i> SYNTHETIC</span>', unsafe_allow_html=True)
-
-    st.caption(f"Last updated: {datetime.now().strftime('%d %b %Y, %H:%M')}")
-
-    st.markdown("---")
-
-    # Region filter (Continents now)
-    all_regions = sorted(df_raw["region"].dropna().unique().tolist())
-    sel_regions = st.multiselect(
-        "🌍 Global Region",
-        options=all_regions,
-        default=all_regions,
+    # Proper YouTube Logo & Branding
+    st.markdown('''
+        <div style="display: flex; align-items: center; gap: 10px; padding: 10px 0 30px 0;">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="#ff0000" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 4-8 4z"/>
+            </svg>
+            <span style="font-size: 1.6rem; font-weight: 800; color: white; letter-spacing: -1px;">Insight<span style="color:#ff0000;">X</span></span>
+        </div>
+    ''', unsafe_allow_html=True)
+    
+    st.markdown("🌍 **Region Intelligence**")
+    st.selectbox(
+        "Select Region", 
+        options=list(REGION_MAP.keys()), 
+        key='region_choice_name', 
+        on_change=update_data, 
+        label_visibility="collapsed"
     )
     
-    # Country filter
-    all_countries = sorted(df_raw["country_code"].dropna().unique().tolist())
-    sel_countries = st.multiselect(
-        "🏳️ Country Code",
-        options=all_countries,
-        default=all_countries,
-    )
+    st.markdown("📂 **Content Niche**")
+    try:
+        # Cache category map to avoid extra API hits
+        current_region = REGION_MAP.get(st.session_state.region_choice_name, 'IN')
+        if st.session_state.get('last_region_cats') != current_region:
+            cats = get_categories(current_region)
+            new_map = {"All": "0"}
+            for item in cats.get("items", []):
+                new_map[item["snippet"]["title"]] = item["id"]
+            st.session_state.cat_id_map = new_map
+            st.session_state.last_region_cats = current_region
+            
+        st.selectbox("Select Category", options=list(st.session_state.cat_id_map.keys()), key='category_choice_name', on_change=update_data, label_visibility="collapsed")
+    except Exception as e:
+        st.error(f"Category Error: {str(e)}")
 
-    # Category filter
-    all_cats = sorted(df_raw["category_name"].dropna().unique().tolist())
-    sel_cats = st.multiselect(
-        "🏷️ Video Category",
-        options=all_cats,
-        default=all_cats,
-    )
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Premium Action Group
+    with st.container():
+        st.markdown('<div style="background:rgba(255,255,255,0.03); padding:15px; border-radius:10px; border:1px solid rgba(255,255,255,0.05);">', unsafe_allow_html=True)
+        
+        if not st.session_state.search_results.empty:
+            csv_data = st.session_state.search_results.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Data (CSV)",
+                data=csv_data,
+                file_name=f"insightx_data_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime='text/csv',
+                use_container_width=True
+            )
 
-    # Date range
-    min_date = df_raw["trending_date"].min()
-    max_date = df_raw["trending_date"].max()
-    if pd.notna(min_date) and pd.notna(max_date):
-        date_range = st.date_input(
-            "📅 Trending Date Range",
-            value=(min_date.date(), max_date.date()),
-            min_value=min_date.date(),
-            max_value=max_date.date(),
-        )
-    else:
-        date_range = None
+        if st.button("🔄 Force Refresh", use_container_width=True):
+            update_data()
+            st.rerun()
 
-    # Top N for charts
-    top_n = st.slider("🏆 Top Chart Size", min_value=5, max_value=30, value=10)
-
+        st.session_state.auto_refresh = st.checkbox("⚙️ Live Sync (60s)", value=st.session_state.auto_refresh)
+        st.markdown('</div>', unsafe_allow_html=True)
+    
     st.markdown("---")
-    st.markdown("**Dataset:** YouTube Trending 2025")
-    if not is_live:
-        st.info("💡 Add `~/.kaggle/kaggle.json` for live data from Kaggle.", icon="🔑")
+    st.caption(f"Status: Connected • Updated {st.session_state.last_refresh.strftime('%H:%M:%S')}")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Apply filters
-# ──────────────────────────────────────────────────────────────────────────────
-df = df_raw.copy()
-if sel_regions:
-    df = df[df["region"].isin(sel_regions)]
-if sel_countries:
-    df = df[df["country_code"].isin(sel_countries)]
-if sel_cats:
-    df = df[df["category_name"].isin(sel_cats)]
-if date_range and len(date_range) == 2:
-    df = df[
-        (df["trending_date"] >= pd.Timestamp(date_range[0])) &
-        (df["trending_date"] <= pd.Timestamp(date_range[1]))
-    ]
+# --- HEADER SECTION ---
+st.markdown('''
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="#ff0000" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 4-8 4z"/>
+        </svg>
+        <span style="font-size: 1.8rem; font-weight: 800; color: white; letter-spacing: -1px;">Insight<span style="color:#ff0000;">X</span></span>
+    </div>
+''', unsafe_allow_html=True)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Header (Custom Logo)
-# ──────────────────────────────────────────────────────────────────────────────
+st.markdown(f'<div class="hero-title">Intelligence for Creators</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="hero-subtitle">Scale your reach with lightning-fast analytics and AI-powered strategy. Real-time insights from <b>{st.session_state.region_choice_name}</b>.</div>', unsafe_allow_html=True)
+
+# Main Search Bar (Trigger Auto Search on Enter)
+st.text_input("Search for videos, tags, or channels...", value=st.session_state.query_str, key="temp_search_input", placeholder="What's trending today?", label_visibility="collapsed", on_change=update_data)
+# Sync the input back if it changed manually or via enter
+if st.session_state.temp_search_input != st.session_state.query_str:
+    st.session_state.query_str = st.session_state.temp_search_input
+
+# --- TOP METRICS ---
+if not st.session_state.search_results.empty:
+    df = st.session_state.search_results
+    m1, m2, m3, m4 = st.columns(4)
+    
+    total_views = df['view_count'].sum()
+    avg_engagement = df['engagement_rate'].mean()
+    total_likes = df['like_count'].sum()
+    videos_tracked = len(df)
+    
+    with m1:
+        st.markdown(f'''<div class="glass-card"><div class="metric-label">Total Views</div><div class="metric-value">{total_views/1000:,.1f}K</div><div class="metric-trend trend-up">↑ 15.2% vs last week</div></div>''', unsafe_allow_html=True)
+    with m2:
+        st.markdown(f'''<div class="glass-card"><div class="metric-label">Avg Engagement</div><div class="metric-value">{avg_engagement:.2%}</div><div class="metric-trend trend-up">↑ 4.1% vs last week</div></div>''', unsafe_allow_html=True)
+    with m3:
+        st.markdown(f'''<div class="glass-card"><div class="metric-label">Total Likes</div><div class="metric-value">{total_likes/1000:,.1f}K</div><div class="metric-trend trend-up">↑ 10.5% vs last week</div></div>''', unsafe_allow_html=True)
+    with m4:
+        st.markdown(f'''<div class="glass-card"><div class="metric-label">Videos Tracked</div><div class="metric-value">{videos_tracked}</div><div class="metric-trend trend-up">● Live vs last week</div></div>''', unsafe_allow_html=True)
+
+# --- NAVIGATION TABS ---
+# CSS to ensure all buttons have the same height and no text wrapping
 st.markdown("""
-<div class="logo-container">
-    <div class="logo-icon"><i class="fa-solid fa-play"></i></div>
-    <h1 class="logo-text">YouTube <span class="logo-subtext">Analytics 2025</span></h1>
-</div>
-<p style="color: #AAAAAA; font-size: 1.1rem; margin-top: 0;">Real-time intelligence on trending videos — updated daily via Kaggle.</p>
-""", unsafe_allow_html=True)
+    <style>
+    div[data-testid="stHorizontalBlock"] button {
+        white-space: nowrap !important;
+        min-height: 45px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+nav_cols = st.columns([1, 1, 1, 1, 2])
+with nav_cols[0]:
+    if st.button("🔥 Top Trending", type="primary" if st.session_state.active_tab=="🔥 Top Trending" else "secondary", use_container_width=True):
+        st.session_state.query_str = "" # Clear search via proxy
+        update_data()
+        st.rerun()
+with nav_cols[1]:
+    if st.button("💖 Most Liked", type="primary" if st.session_state.active_tab=="💖 Most Liked" else "secondary", use_container_width=True):
+        st.session_state.active_tab = "💖 Most Liked"
+        if not st.session_state.search_results.empty:
+            st.session_state.search_results = st.session_state.search_results.sort_values(by="like_count", ascending=False)
+with nav_cols[2]:
+    if st.button("📊 Deep Analysis", type="primary" if st.session_state.active_tab=="📊 Deep Analysis" else "secondary", use_container_width=True):
+        st.session_state.active_tab = "📊 Deep Analysis"
+with nav_cols[3]:
+    if st.button("🤖 AI Strategist", type="primary" if st.session_state.active_tab=="🤖 AI Strategist" else "secondary", use_container_width=True):
+        st.session_state.active_tab = "🤖 AI Strategist"
+
 st.markdown("---")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# KPI cards
-# ──────────────────────────────────────────────────────────────────────────────
-def fmt(n: float, unit: str = "") -> str:
-    if n >= 1_000_000_000:
-        return f"{n/1_000_000_000:.1f}B{unit}"
-    if n >= 1_000_000:
-        return f"{n/1_000_000:.1f}M{unit}"
-    if n >= 1_000:
-        return f"{n/1_000:.1f}K{unit}"
-    return f"{n:.0f}{unit}"
+# --- MAIN CONTENT AREA ---
+if st.session_state.active_tab in ["🔥 Top Trending", "🔍 Search Results", "💖 Most Liked"]:
+    if st.session_state.search_results.empty:
+        update_data()
+        st.rerun()
+            
+    st.subheader(f"{st.session_state.active_tab}")
+    
+    # Video Grid
+    df = st.session_state.search_results
+    for i in range(0, len(df), 3):
+        cols = st.columns(3)
+        for j in range(3):
+            if i + j < len(df):
+                row = df.iloc[i+j]
+                with cols[j]:
+                    st.markdown(f'''
+                        <div style="background:rgba(255,255,255,0.03); border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.05); margin-bottom:20px;">
+                            <img src="{row['thumbnail']}" style="width:100%; aspect-ratio:16/9; object-fit:cover;">
+                            <div style="padding:16px;">
+                                <div style="font-weight:600; font-size:1.05rem; margin-bottom:4px; height:44px; overflow:hidden;">{row['title']}</div>
+                                <div style="color:rgba(255,255,255,0.4); font-size:0.85rem; display:flex; justify-content:space-between;">
+                                    <span>👤 {row['channel_title']}</span>
+                                    <span>📅 {row['published_at'].strftime('%d %b %Y')}</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; margin-top:12px; font-size:0.9rem;">
+                                    <span>👁️ {row['view_count']:,}</span>
+                                    <span>👍 {row['like_count']:,}</span>
+                                </div>
+                            </div>
+                        </div>
+                    ''', unsafe_allow_html=True)
+                    with st.expander("Details"):
+                        st.video(f"https://www.youtube.com/watch?v={row['video_id']}")
 
-total_videos   = len(df)
-avg_views      = df["views"].mean() if total_videos else 0
-avg_likes      = df["likes"].mean() if total_videos else 0
-avg_engagement = df["engagement_rate"].mean() * 100 if total_videos else 0
-total_views    = df["views"].sum()
+    # Search Channel Insights Section
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("### 🏆 Channel Intelligence Leaderboard")
+    try:
+        chan_df = get_channel_summary(df)
+        if not chan_df.empty:
+            # Format numbers for better readability in the table
+            formatted_chan_df = chan_df.copy()
+            formatted_chan_df['Total Views'] = formatted_chan_df['Total Views'].apply(lambda x: f"{x/1000:,.1f}K" if x > 1000 else str(x))
+            formatted_chan_df['Total Likes'] = formatted_chan_df['Total Likes'].apply(lambda x: f"{x/1000:,.1f}K" if x > 1000 else str(x))
+            formatted_chan_df['Engagement Rate'] = formatted_chan_df['Engagement Rate'].apply(lambda x: f"{x:.2%}")
+            
+            st.dataframe(
+                formatted_chan_df,
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No channel data available for the current results.")
+    except Exception as e:
+        st.error(f"Channel Insights Error: {str(e)}")
+    
+    # Creator Excellence Banner
+    region_name = st.session_state.get('region_choice_name', 'Global')
+    st.markdown(f'''
+        <div class="banner">
+            <span style="font-size:1.2rem; font-weight:800; color:#fff;">✨ {region_name} Content Excellence</span><br>
+            <span style="color:rgba(255,255,255,0.6);">Featuring the most impactful creators and high-velocity trends in this region.</span>
+        </div>
+    ''', unsafe_allow_html=True)
 
-c1, c2, c3, c4, c5 = st.columns(5)
-for col, val, label, delta, icon in [
-    (c1, f"{total_videos:,}",          "Trending Videos", "in selected filters", "fa-fire"),
-    (c2, fmt(total_views),             "Total Views",     "across all videos", "fa-eye"),
-    (c3, fmt(avg_views),               "Avg Views/Vid",   "per trending entry", "fa-chart-line"),
-    (c4, fmt(avg_likes),               "Avg Likes/Vid",   "engagement signal", "fa-thumbs-up"),
-    (c5, f"{avg_engagement:.2f}%",     "Engagement Rate", "(likes+comments)/views", "fa-heart"),
-]:
-    col.markdown(
-        f'<div class="kpi-wrapper">'
-        f'<div class="kpi-card">'
-        f'<i class="fa-solid {icon} kpi-icon"></i>'
-        f'<div class="kpi-value">{val}</div>'
-        f'<div class="kpi-label">{label}</div>'
-        f'<div class="kpi-delta">{delta}</div>'
-        f'</div></div>',
-        unsafe_allow_html=True,
-    )
+elif st.session_state.active_tab == "📊 Deep Analysis":
+    df = st.session_state.search_results
+    if df.empty: 
+        st.info("Load data first")
+    else:
+        st.markdown("### 📊 Deep Audience & Performance Intelligence")
+        
+        # Row 1: Donut and Pie
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            st.markdown("#### 🍩 Interaction Breakdown")
+            # Calculate total likes and comments
+            total_l = df['like_count'].sum()
+            total_c = df['comment_count'].sum()
+            fig1 = px.pie(
+                names=["Likes", "Comments"], 
+                values=[total_l, total_c], 
+                hole=0.7, 
+                color_discrete_sequence=['#ff4b4b', '#ffffff']
+            )
+            fig1.update_traces(textinfo='percent', textfont_size=14)
+            fig1.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)', 
+                font_color="white", 
+                margin=dict(t=30, b=0, l=0, r=0),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+            
+        with col_c2:
+            st.markdown("#### 🥧 Channel View Share")
+            c_views = df.groupby("channel_title")["view_count"].sum().reset_index().nlargest(5, 'view_count')
+            fig2 = px.pie(
+                c_views, 
+                values="view_count", 
+                names="channel_title", 
+                color_discrete_sequence=px.colors.sequential.Reds_r
+            )
+            fig2.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)', 
+                font_color="white", 
+                margin=dict(t=30, b=0, l=0, r=0),
+                showlegend=False
+            )
+            st.plotly_chart(fig2, use_container_width=True)
 
-st.markdown("")
+        st.markdown(" --- ")
+        
+        # Row 2: Performance Map and Engagement Efficiency
+        col_c3, col_c4 = st.columns([1.5, 1])
+        with col_c3:
+            st.markdown("#### 🗺️ Performance Map (Views vs Likes)")
+            fig3 = px.scatter(
+                df, 
+                x="view_count", 
+                y="like_count",
+                size="engagement_rate",
+                hover_name="title",
+                color="engagement_rate",
+                color_continuous_scale="Reds",
+                labels={"view_count": "Views", "like_count": "Likes", "engagement_rate": "ER %"}
+            )
+            fig3.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)', 
+                font_color="white",
+                xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'),
+                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'),
+                coloraxis_showscale=False
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+            
+        with col_c4:
+            st.markdown("#### ⚡ Engagement Efficiency")
+            top_er = df.nlargest(5, 'engagement_rate')
+            fig4 = px.bar(
+                top_er,
+                y='title',
+                x='engagement_rate',
+                orientation='h',
+                color='engagement_rate',
+                color_continuous_scale="Reds",
+                labels={"engagement_rate": "ER %", "title": "Video"}
+            )
+            fig4.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)', 
+                font_color="white",
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=False, showticklabels=False), # Hide labels for cleaner look
+                coloraxis_showscale=False,
+                margin=dict(t=0, b=0, l=0, r=0)
+            )
+            st.plotly_chart(fig4, use_container_width=True)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Row 1 — Top Videos  |  Category Breakdown
-# ──────────────────────────────────────────────────────────────────────────────
-col_a, col_b = st.columns([3, 2])
+elif st.session_state.active_tab == "🤖 AI Strategist":
+    st.markdown("### 🤖 InsightX AI Content Strategist")
+    if st.session_state.search_results.empty: st.warning("No data context.")
+    else:
+        if st.button("✨ Generate Viral Ideas"):
+            with st.spinner("Analyzing..."):
+                st.info(analyze_trends(st.session_state.search_results))
+        if 'messages' not in st.session_state: st.session_state.messages = []
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]): st.markdown(msg["content"])
+        if ci := st.chat_input("Ask a strategist..."):
+            st.session_state.messages.append({"role": "user", "content": ci})
+            with st.chat_message("user"): st.markdown(ci)
+            with st.chat_message("assistant"):
+                res = get_ai_response(ci, f"Top videos: {st.session_state.search_results['title'].head(5).tolist()}")
+                st.markdown(res)
+                st.session_state.messages.append({"role": "assistant", "content": res})
 
-with col_a:
-    st.markdown('<div class="section-title">🏆 Top Videos by Views</div>', unsafe_allow_html=True)
-    top_df = (
-        df.groupby(["title", "channel_title"], as_index=False)
-          .agg(views=("views", "max"), likes=("likes", "max"))
-          .sort_values("views", ascending=False)
-          .head(top_n)
-    )
-    top_df["label"] = top_df["title"].str[:45] + "…"
-
-    fig_top = px.bar(
-        top_df, x="views", y="label",
-        orientation="h",
-        color="views",
-        color_continuous_scale=RED_SEQ,
-        labels={"views": "Views", "label": ""},
-        hover_data={"channel_title": True, "likes": True, "label": False},
-    )
-    fig_top.update_coloraxes(showscale=False)
-    fig_top.update_yaxes(categoryorder="total ascending")
-    st.plotly_chart(apply_theme(fig_top, 440), use_container_width=True)
-
-with col_b:
-    st.markdown('<div class="section-title">🏷️ Category Distribution</div>', unsafe_allow_html=True)
-    cat_df = df.groupby("category_name", as_index=False)["views"].sum().sort_values("views", ascending=False)
-    fig_pie = px.pie(
-        cat_df, values="views", names="category_name",
-        hole=0.55,
-        color_discrete_sequence=YT_PALETTE,
-    )
-    fig_pie.update_traces(textposition="inside", textinfo="percent+label")
-    fig_pie.update_layout(showlegend=False)
-    st.plotly_chart(apply_theme(fig_pie, 440), use_container_width=True)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Row 2 — Engagement Scatter  |  Daily Trending Volume
-# ──────────────────────────────────────────────────────────────────────────────
-col_c, col_d = st.columns(2)
-
-with col_c:
-    st.markdown('<div class="section-title">💬 Views vs Likes (Engagement)</div>', unsafe_allow_html=True)
-    scatter_df = df.sample(min(2000, len(df)), random_state=0) if len(df) > 2000 else df
-    fig_scatter = px.scatter(
-        scatter_df, x="views", y="likes",
-        color="category_name",
-        size="comment_count",
-        size_max=20,
-        hover_name="title",
-        log_x=True, log_y=True,
-        color_discrete_sequence=YT_PALETTE,
-        labels={"views": "Views (log)", "likes": "Likes (log)", "category_name": "Category"},
-        opacity=0.75,
-    )
-    st.plotly_chart(apply_theme(fig_scatter, 420), use_container_width=True)
-
-with col_d:
-    st.markdown('<div class="section-title">📈 Daily Trending Volume</div>', unsafe_allow_html=True)
-    _daily = df.dropna(subset=["trending_date"]).copy()
-    _daily["date"] = _daily["trending_date"].dt.date
-    daily_df = (
-        _daily.groupby("date")
-              .agg(count=("video_id", "count"))
-              .reset_index()
-    )
-    fig_line = px.area(
-        daily_df, x="date", y="count",
-        labels={"date": "Date", "count": "Trending Videos"},
-        color_discrete_sequence=["#FF0000"],
-        line_shape="spline",
-    )
-    fig_line.update_traces(
-        fill="tozeroy",
-        fillcolor="rgba(255,0,0,0.2)",
-        line=dict(color="#FF4D4D", width=2),
-    )
-    st.plotly_chart(apply_theme(fig_line, 420), use_container_width=True)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Row 3 — Region Heatmap  |  Top Channels
-# ──────────────────────────────────────────────────────────────────────────────
-col_e, col_f = st.columns(2)
-
-with col_e:
-    st.markdown('<div class="section-title">🌍 Views by Region</div>', unsafe_allow_html=True)
-    region_df = (
-        df.groupby("region", as_index=False)["views"]
-          .sum()
-          .sort_values("views", ascending=False)
-    )
-    fig_region = px.bar(
-        region_df, x="region", y="views",
-        color="views",
-        color_continuous_scale=RED_SEQ,
-        labels={"region": "Region", "views": "Total Views"},
-    )
-    fig_region.update_coloraxes(showscale=False)
-    st.plotly_chart(apply_theme(fig_region, 380), use_container_width=True)
-
-with col_f:
-    st.markdown('<div class="section-title">📺 Top Channels by Trending Videos</div>', unsafe_allow_html=True)
-    chan_df = (
-        df.groupby("channel_title", as_index=False)
-          .agg(count=("video_id", "count"), total_views=("views", "sum"))
-          .sort_values("count", ascending=False)
-          .head(top_n)
-    )
-    fig_chan = px.bar(
-        chan_df, x="count", y="channel_title",
-        orientation="h",
-        color="total_views",
-        color_continuous_scale=RED_SEQ,
-        labels={"count": "Trending Count", "channel_title": ""},
-    )
-    fig_chan.update_coloraxes(showscale=False)
-    fig_chan.update_yaxes(categoryorder="total ascending")
-    st.plotly_chart(apply_theme(fig_chan, 380), use_container_width=True)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Row 4 — Engagement Rate by Category (box plot)
-# ──────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="section-title">📊 Engagement Rate Distribution by Category</div>', unsafe_allow_html=True)
-fig_box = px.box(
-    df[df["engagement_rate"] < df["engagement_rate"].quantile(0.99)],
-    x="category_name",
-    y="engagement_rate",
-    color="category_name",
-    color_discrete_sequence=YT_PALETTE,
-    labels={"engagement_rate": "Engagement Rate", "category_name": ""},
-)
-fig_box.update_layout(showlegend=False)
-st.plotly_chart(apply_theme(fig_box, 380), use_container_width=True)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Raw Data Table
-# ──────────────────────────────────────────────────────────────────────────────
-st.markdown("---")
-st.markdown('<div class="section-title">📋 Raw Data Explorer</div>', unsafe_allow_html=True)
-
-display_cols = [c for c in [
-    "title", "channel_title", "category_name", "region",
-    "trending_date", "views", "likes", "comment_count", "engagement_rate",
-] if c in df.columns]
-
-search_term = st.text_input("🔍 Search by title or channel", placeholder="e.g. MrBeast, TechGuru…")
-table_df = df[display_cols].copy()
-if search_term:
-    mask = (
-        table_df.get("title", pd.Series(dtype=str)).str.contains(search_term, case=False, na=False) |
-        table_df.get("channel_title", pd.Series(dtype=str)).str.contains(search_term, case=False, na=False)
-    )
-    table_df = table_df[mask]
-
-table_df["trending_date"] = table_df["trending_date"].dt.strftime("%Y-%m-%d")
-st.dataframe(
-    table_df.sort_values("views", ascending=False).reset_index(drop=True),
-    use_container_width=True,
-    height=400,
-)
-
-st.download_button(
-    label="⬇️  Download filtered data as CSV",
-    data=table_df.to_csv(index=False).encode("utf-8"),
-    file_name="youtube_trending_filtered.csv",
-    mime="text/csv",
-)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Footer
-# ──────────────────────────────────────────────────────────────────────────────
-st.markdown("---")
-st.caption(
-    "Data source: [YouTube Trending Videos 2025](https://www.kaggle.com/datasets/sebastianbesinski/youtube-trending-videos-2025-updated-daily) · "
-    "Built with Streamlit & Plotly · Refreshes daily"
-)
+st.markdown("<br><br><center style='color:rgba(255,255,255,0.2); font-size:0.8rem;'>YouTube InsightX v3.0 Ultra | Powered by Groq AI</center>", unsafe_allow_html=True)

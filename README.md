@@ -1,58 +1,49 @@
-# YouTube Trending Videos 2025 — Analytics Dashboard
+# YouTube InsightX – AI Powered YouTube Analytics Dashboard
 
-An interactive, production-ready analytics dashboard for YouTube Trending Videos 2025, updated daily.
+YouTube InsightX is a premium, real-time analytics platform designed for creators and data analysts. It leverages the YouTube Data API v3 for live data fetching and Groq AI for generating intelligent content strategies.
 
-## ✨ Features
+## 🚀 Features
 
-| Feature | Details |
-|---------|---------|
-| 🎨 Dark theme | Premium dark UI with gradient design |
-| 📊 7 Interactive Charts | Top Videos, Category Donut, Engagement Scatter, Daily Volume, Region Bar, Top Channels, Engagement Box Plot |
-| 🃏 KPI Cards | Total Videos · Total Views · Avg Views · Avg Likes · Avg Engagement Rate |
-| 🌍 Filters | Region · Category · Date Range · Top N |
-| 🔍 Search | Real-time title/channel search |
-| ⬇️ Export | Download filtered data as CSV |
-| 🔄 Daily Refresh | Auto-refreshes Kaggle data every 24 hours |
+- **Real-time Data Fetching**: Get the latest trending videos or search by keyword across different regions and categories.
+- **Premium Dark UI**: A sleek, modern dashboard inspired by YouTube Studio with glassmorphism effects.
+- **Advanced Analytics**:
+  - **Interaction Breakdown**: Donut chart showing Likes vs. Comments.
+  - **Channel View Share**: Pie chart of view distribution among top channels.
+  - **Performance Map**: Scatter plot correlating views, likes, and engagement.
+  - **Engagement Efficiency**: Visualizing the most engaging content.
+- **AI Content Strategist**: A built-in chatbot powered by Groq (LLaMA 3) that provides viral content ideas and trend analysis.
+- **CSV Data Export**: Download your filtered results for offline analysis.
+- **Embedded Player**: Watch videos directly within the dashboard.
 
-## 🚀 Quick Start
+## 🛠️ Tech Stack
 
-```bash
-cd /Users/yadunath/youtube_analytics
-source venv/bin/activate
-streamlit run app.py
-```
+- **Python**: Core logic.
+- **Streamlit**: Web framework.
+- **Pandas & NumPy**: Data manipulation.
+- **Plotly**: Interactive visualizations.
+- **Groq AI**: Intelligent content strategy generation.
+- **YouTube Data API v3**: Live video metrics.
 
-The dashboard opens at **http://localhost:8501**.
+## 📦 Installation & Setup
 
-## 📡 Live Data (Optional)
+1. **Clone the project**
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. **Configure API Keys**:
+   Create a `.env` file in the root directory (or use the provided one) and add your keys:
+   ```env
+   YOUTUBE_API_KEY=YOUR_YOUTUBE_API_KEY
+   GROQ_API_KEY=YOUR_GROQ_API_KEY
+   ```
+4. **Run the application**:
+   ```bash
+   streamlit run app.py
+   ```
 
-1. Go to https://www.kaggle.com/settings → **Create New Token** → download `kaggle.json`
-2. Place it at `~/.kaggle/kaggle.json`
-3. Restart the dashboard — it will pull live data automatically!
+## 📊 Engagement Rate Formula
+$Engagement Rate = \frac{Likes + Comments}{Views}$
 
-## 🗓️ Daily Auto-Update via Cron
-
-```bash
-# Add to crontab: updates data every day at 6am
-0 6 * * * bash /Users/yadunath/youtube_analytics/update_data.sh >> /tmp/yt_update.log 2>&1
-```
-
-## 📁 Project Structure
-
-```
-youtube_analytics/
-├── app.py              ← Streamlit dashboard (main entry point)
-├── data_loader.py      ← Kaggle API + synthetic data fallback
-├── update_data.sh      ← Manual data refresh script
-├── requirements.txt    ← Python dependencies
-├── .streamlit/
-│   └── config.toml     ← Dark theme configuration
-└── data/
-    └── youtube_trending.csv  ← Cached dataset (auto-generated)
-```
-
-## 📦 Dataset
-
-- **Source:** [YouTube Trending Videos 2025](https://www.kaggle.com/datasets/sebastianbesinski/youtube-trending-videos-2025-updated-daily)
-- **Updated:** Daily by Kaggle author
-- **Schema:** `video_id`, `title`, `channel_title`, `category`, `views`, `likes`, `dislikes`, `comment_count`, `trending_date`, `region`, `tags`
+---
+Developed for Data Analytics Subject.

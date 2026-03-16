@@ -1,54 +1,52 @@
+import os
 from groq import Groq
-import pandas as pd
-import json
+from dotenv import load_dotenv
 
-class InsightXAI:
-    def __init__(self, api_key):
-        self.client = Groq(api_key=api_key)
-        self.model = "llama-3.3-70b-versatile"
-        self.system_prompt = """
-        You are 'InsightX AI', a professional YouTube Content Strategist and Trend Analyst. 
-        Your goal is to help creators grow by analyzing real-time data and suggesting actionable strategies.
+load_dotenv()
+
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+SYSTEM_PROMPT = """
+You are the AI Content Strategist for YouTube InsightX. 
+Your goal is to help creators and analysts understand YouTube trends and develop viral content strategies.
+You have access to real-time analytics data (provided in context).
+Be professional, insightful, and creative. Suggest specific video ideas, hook improvements, and niche opportunities.
+"""
+
+def get_ai_response(user_query, context_data=None):
+    """Generic function to get a response from Groq AI."""
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT}
+    ]
+    
+    if context_data:
+        messages.append({
+            "role": "system", 
+            "content": f"Current Trending/Search Data Context: {context_data}"
+        })
         
-        Guidelines:
-        1. Base your advice on the 'Real-time Context' provided (video titles, views, stats).
-        2. Be creative with video ideas, titles, and hooks.
-        3. Suggest specific niches or 'micro-niches' that are currently underserved.
-        4. Focus on engagement metrics and virality factors.
-        5. Keep responses concise, professional, and encouraging.
-        """
+    messages.append({"role": "user", "content": user_query})
+    
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1024,
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Error connecting to AI Strategist: {str(e)}"
 
-    def get_ai_response(self, user_query, context_df):
-        """
-        Generates a response based on user query and the current dashboard data.
-        """
-        try:
-            # Prepare context
-            if context_df is not None and not context_df.empty:
-                # Top 10 videos as context
-                top_videos = context_df.sort_values("views", ascending=False).head(10)
-                context_str = "REAL-TIME TRENDING DATA CONTEXT:\n"
-                for i, row in top_videos.iterrows():
-                    context_str += f"- Video: {row['title']} | Channel: {row['channel_title']} | Views: {row['views']} | Likes: {row['likes']}\n"
-            else:
-                context_str = "No real-time data currently available. Advise based on general YouTube best practices."
-
-            completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": f"{context_str}\n\nUSER QUESTION: {user_query}"}
-                ],
-                temperature=0.7,
-                max_tokens=1024,
-            )
-            return completion.choices[0].message.content
-        except Exception as e:
-            return f"Error connecting to AI Strategist (Groq): {str(e)}"
-
-    def suggest_initial_topics(self, context_df):
-        """
-        Provides 3-4 trending topic ideas based on data.
-        """
-        query = "Based on the trending videos, what are 3 specific, viral content ideas for a new creator?"
-        return self.get_ai_response(query, context_df)
+def analyze_trends(df):
+    """Specifically analyze the provided dataframe for trends."""
+    if df.empty:
+        return "No data available to analyze. Please fetch some videos first."
+        
+    # Create a concise summary for the AI
+    top_videos = df.nlargest(5, 'view_count')[['title', 'view_count', 'engagement_rate']].to_dict(orient='records')
+    context = f"Top 5 videos currently: {top_videos}"
+    
+    query = "Based on this data, what are the current trending topics and what kind of videos should creators make next to go viral?"
+    
+    return get_ai_response(query, context)

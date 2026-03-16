@@ -1,124 +1,69 @@
-import googleapiclient.discovery
-import googleapiclient.errors
-import pandas as pd
-from datetime import datetime
+import requests
+import os
+from dotenv import load_dotenv
 
-class YouTubeAPI:
-    def __init__(self, api_key):
-        self.api_key = api_key
-        self.youtube = googleapiclient.discovery.build(
-            "youtube", "v3", developerKey=api_key
-        )
-        self.categories = {
-            "All": None,
-            "Music": "10",
-            "Gaming": "20",
-            "Film & Animation": "1",
-            "Sports": "17",
-            "Entertainment": "24",
-            "News & Politics": "25",
-            "How-to & Style": "26",
-            "Education": "27",
-            "Science & Technology": "28",
-            "People & Blogs": "22",
-            "Comedy": "23",
-            "Travel & Events": "19"
-        }
+load_dotenv()
 
-    def get_trending_videos(self, region_code="IN", category_id=None, max_results=20):
-        """Fetch trending videos for a specific region and category."""
-        try:
-            params = {
-                "part": "snippet,contentDetails,statistics",
-                "chart": "mostPopular",
-                "regionCode": region_code,
-                "maxResults": max_results
-            }
-            if category_id:
-                params["videoCategoryId"] = category_id
-            
-            request = self.youtube.videos().list(**params)
-            response = request.execute()
-            
-            videos = []
-            for item in response.get("items", []):
-                videos.append({
-                    "video_id": item["id"],
-                    "title": item["snippet"]["title"],
-                    "channel_title": item["snippet"]["channelTitle"],
-                    "category_id": item["snippet"]["categoryId"],
-                    "published_at": item["snippet"]["publishedAt"],
-                    "trending_date": datetime.now().strftime("%Y-%m-%d"),
-                    "views": int(item["statistics"].get("viewCount", 0)),
-                    "likes": int(item["statistics"].get("likeCount", 0)),
-                    "comment_count": int(item["statistics"].get("commentCount", 0)),
-                    "thumbnail_link": item["snippet"]["thumbnails"]["high"]["url"],
-                    "country_code": region_code
-                })
-            return pd.DataFrame(videos)
-        except Exception as e:
-            print(f"Error fetching trending videos: {e}")
-            return pd.DataFrame()
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+BASE_URL = "https://www.googleapis.com/youtube/v3"
 
-    def get_video_comments(self, video_id, max_results=5):
-        """Fetch top comments for a specific video."""
-        try:
-            request = self.youtube.commentThreads().list(
-                part="snippet",
-                videoId=video_id,
-                maxResults=max_results,
-                order="relevance"
-            )
-            response = request.execute()
-            
-            comments = []
-            for item in response.get("items", []):
-                comment = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
-                comments.append(comment)
-            return comments
-        except Exception as e:
-            # Some videos have comments disabled
-            return ["Comments are disabled for this video."]
+def get_trending_videos(region_code="US", video_category_id="0", max_results=20):
+    """Fetch trending videos based on region and category."""
+    url = f"{BASE_URL}/videos"
+    params = {
+        "part": "snippet,statistics,contentDetails",
+        "chart": "mostPopular",
+        "regionCode": region_code,
+        "maxResults": max_results,
+        "key": YOUTUBE_API_KEY
+    }
+    if video_category_id != "0":
+        params["videoCategoryId"] = video_category_id
+        
+    response = requests.get(url, params=params)
+    return response.json()
 
-    def search_videos(self, query, region_code="IN", max_results=10):
-        """Search for videos based on a query."""
-        try:
-            request = self.youtube.search().list(
-                part="snippet",
-                q=query,
-                regionCode=region_code,
-                maxResults=max_results,
-                type="video"
-            )
-            response = request.execute()
-            
-            video_ids = [item["id"]["videoId"] for item in response.get("items", [])]
-            
-            # Fetch full details for these videos
-            if video_ids:
-                details_request = self.youtube.videos().list(
-                    part="snippet,statistics",
-                    id=",".join(video_ids)
-                )
-                details_response = details_request.execute()
-                
-                videos = []
-                for item in details_response.get("items", []):
-                    videos.append({
-                        "video_id": item["id"],
-                        "title": item["snippet"]["title"],
-                        "channel_title": item["snippet"]["channelTitle"],
-                        "category_id": item["snippet"]["categoryId"],
-                        "published_at": item["snippet"]["publishedAt"],
-                        "trending_date": datetime.now().strftime("%Y-%m-%d"),
-                        "views": int(item["statistics"].get("viewCount", 0)),
-                        "likes": int(item["statistics"].get("likeCount", 0)),
-                        "comment_count": int(item["statistics"].get("commentCount", 0)),
-                        "thumbnail_link": item["snippet"]["thumbnails"]["high"]["url"],
-                        "country_code": region_code
-                    })
-                return pd.DataFrame(videos)
-            return pd.DataFrame()
-        except Exception as e:
-            print(f"Error searching videos: {e}")
-            return pd.DataFrame()
+def search_youtube_videos(query, region_code="US", video_category_id="0", max_results=20):
+    """Search for videos based on keyword, region, and category."""
+    search_url = f"{BASE_URL}/search"
+    search_params = {
+        "part": "snippet",
+        "q": query,
+        "regionCode": region_code,
+        "type": "video",
+        "maxResults": max_results,
+        "key": YOUTUBE_API_KEY
+    }
+    if video_category_id != "0":
+        search_params["videoCategoryId"] = video_category_id
+        
+    search_response = requests.get(search_url, params=search_params).json()
+    
+    video_ids = [item["id"]["videoId"] for item in search_response.get("items", [])]
+    if not video_ids:
+        return {"items": []}
+        
+    # Search doesn't give statistics, so we need to call /videos
+    return get_video_details(",".join(video_ids))
+
+def get_video_details(video_ids):
+    """Fetch detailed statistics for a list of video IDs."""
+    url = f"{BASE_URL}/videos"
+    params = {
+        "part": "snippet,statistics,contentDetails",
+        "id": video_ids,
+        "key": YOUTUBE_API_KEY
+    }
+    response = requests.get(url, params=params)
+    return response.json()
+
+def get_categories(region_code="US"):
+    """Fetch video categories for a specific region."""
+    url = f"{BASE_URL}/videoCategories"
+    params = {
+        "part": "snippet",
+        "regionCode": region_code,
+        "key": YOUTUBE_API_KEY
+    }
+    response = requests.get(url, params=params)
+    return response.json()
